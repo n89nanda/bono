@@ -16,60 +16,8 @@ client = OpenAI(
 )
 model = os.environ.get("MODEL", "anthropic/claude-opus-4.5")
 
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read file contents",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}},
-                "required": ["path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Write content to file",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["path", "content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_shell",
-            "description": "Execute shell command",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string"},
-                    "description": {"type": "string"},
-                    "safety": {
-                        "type": "string",
-                        "enum": [
-                            "read-only",
-                            "modify",
-                            "destructive",
-                            "network",
-                            "privileged",
-                        ],
-                    },
-                },
-                "required": ["command", "description", "safety"],
-            },
-        },
-    },
-]
+with open("tools.json", "r") as f:
+    tools = json.load(f)
 
 
 def getch():
