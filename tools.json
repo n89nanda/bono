@@ -71,5 +71,22 @@
         ]
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit_file",
+      "description": "Replace exact string in file. old_string must be unique unless replace_all is true.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "old_string": {"type": "string"},
+          "new_string": {"type": "string"},
+          "replace_all": {"type": "boolean", "default": false}
+        },
+        "required": ["path", "old_string", "new_string"]
+      }
+    }
   }
 ]

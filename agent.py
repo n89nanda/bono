@@ -31,18 +31,33 @@ def getch():
 
 
 def run_tool(name, args):
+    marker = "● "
     if name == "write_file":
-        prompt = f"Write('{args['path']}', {len(args['content'].splitlines())} lines)"
+        prompt = (
+            f"{marker}Write('{args['path']}', {len(args['content'].splitlines())} lines)"
+        )
         run = lambda: (open(args["path"], "w").write(args["content"]), "written", "ok")[
             1:
         ]
     elif name == "read_file":
-        prompt = f"Read('{args['path']}')"
+        prompt = f"{marker}Read('{args['path']}')"
         run = lambda: (f"{len((c := open(args['path']).read()).splitlines())} lines", c)
+    elif name == "edit_file":
+        prompt = f"{marker}Edit('{args['path']}')"
+        def run():
+            content = open(args["path"]).read()
+            old, new = args["old_string"], args["new_string"]
+            count = content.count(old)
+            if count == 0:
+                return "fail: string not found", ""
+            if count > 1 and not args.get("replace_all"):
+                return f"fail: {count} matches (use replace_all)", ""
+            open(args["path"], "w").write(content.replace(old, new, -1 if args.get("replace_all") else 1))
+            return "ok", f"replaced {count} occurrence(s)"
     else:
         desc = args.get("description", "(no description)")
         safety = args.get("safety", "modify")
-        prompt = f"Bash('{args['command']}') # {desc}, {safety}"
+        prompt = f"{marker}Bash('{args['command']}') # {desc}, {safety}"
 
         def run():
             t = time.time()
@@ -54,10 +69,13 @@ def run_tool(name, args):
                 r.stdout + r.stderr,
             )
 
-    print(prompt, end=" [Enter/Esc] ", flush=True)
-    if getch() == "\x1b":
-        print("=> cancelled")
-        return None, False
+    if name == "read_file":
+        print(prompt, end=" ", flush=True)
+    else:
+        print(prompt, end=" [Enter/Esc] ", flush=True)
+        if getch() == "\x1b":
+            print("=> cancelled")
+            return None, False
     status, result = run()
     print(f"\r{prompt} => {status}" + " " * 20)
     return result, True
@@ -103,4 +121,4 @@ try:
                 break
         print(msg.content)
 except KeyboardInterrupt:
-    print("\nKaboom! The keyboard ninja strikes again. See ya, space cow!")
+    print("BYEEE")
