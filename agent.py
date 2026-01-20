@@ -1,0 +1,158 @@
+import json
+import os
+import subprocess
+import sys
+import termios
+import time
+import tty
+
+from dotenv import load_dotenv
+from openai import OpenAI
+
+load_dotenv()
+client = OpenAI(
+    base_url=os.environ.get("BASE_URL", "https://openrouter.ai/api/v1"),
+    api_key=os.environ["OPENROUTER_API_KEY"],
+)
+model = os.environ.get("MODEL", "anthropic/claude-opus-4.5")
+
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read file contents",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to file",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shell",
+            "description": "Execute shell command",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string"},
+                    "description": {"type": "string"},
+                    "safety": {
+                        "type": "string",
+                        "enum": [
+                            "read-only",
+                            "modify",
+                            "destructive",
+                            "network",
+                            "privileged",
+                        ],
+                    },
+                },
+                "required": ["command", "description", "safety"],
+            },
+        },
+    },
+]
+
+
+def getch():
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        return sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def run_tool(name, args):
+    if name == "write_file":
+        prompt = f"Write('{args['path']}', {len(args['content'].splitlines())} lines)"
+        run = lambda: (open(args["path"], "w").write(args["content"]), "written", "ok")[
+            1:
+        ]
+    elif name == "read_file":
+        prompt = f"Read('{args['path']}')"
+        run = lambda: (f"{len((c := open(args['path']).read()).splitlines())} lines", c)
+    else:
+        desc = args.get("description", "(no description)")
+        safety = args.get("safety", "modify")
+        prompt = f"Bash('{args['command']}') # {desc}, {safety}"
+
+        def run():
+            t = time.time()
+            r = subprocess.run(
+                args["command"], shell=True, capture_output=True, text=True
+            )
+            return (
+                f"{'ok' if r.returncode == 0 else 'fail'} ({time.time() - t:.1f}s)",
+                r.stdout + r.stderr,
+            )
+
+    print(prompt, end=" [Enter/Esc] ", flush=True)
+    if getch() == "\x1b":
+        print("=> cancelled")
+        return None, False
+    status, result = run()
+    print(f"\r{prompt} => {status}" + " " * 20)
+    return result, True
+
+
+with open("system_prompt.txt", "r") as f:
+    system_prompt = f.read()
+
+messages = [
+    {
+        "role": "system",
+        "content": system_prompt,
+    }
+]
+
+try:
+    while True:
+        messages.append({"role": "user", "content": input("> ")})
+        while True:
+            response = client.chat.completions.create(
+                model=model,
+                tools=tools,
+                messages=messages,
+                extra_headers={"HTTP-Referer": "http://localhost", "X-Title": "Agent"},
+            )
+            msg = response.choices[0].message
+            messages.append(msg.model_dump())
+            if not msg.tool_calls:
+                break
+            checkpoint = len(messages) - 1
+            cancelled = False
+            for tc in msg.tool_calls:
+                args = json.loads(tc.function.arguments)
+                result, ok = run_tool(tc.function.name, args)
+                if not ok:
+                    cancelled = True
+                    break
+                messages.append(
+                    {"role": "tool", "tool_call_id": tc.id, "content": str(result)}
+                )
+            if cancelled:
+                del messages[checkpoint:]
+                break
+        print(msg.content)
+except KeyboardInterrupt:
+    print("\nKaboom! The keyboard ninja strikes again. See ya, space cow!")
